@@ -8,6 +8,9 @@ import pandas as pd
 from datetime import datetime, timedelta
 import json
 import re
+import math
+import io
+import contextlib
 
 # Configure page
 st.set_page_config(
@@ -21,7 +24,7 @@ st.set_page_config(
 @st.cache_resource
 def init_gemini():
     genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-    return genai.GenerativeModel('gemma-3-27b-it')
+    return genai.GenerativeModel('gemini-2.5-flash-preview-04-17')
 
 # Data structures and topics
 DS_TOPICS = {
@@ -350,10 +353,59 @@ def visualize_dp_table(dp_table, problem_name):
     
     return fig
 
+# --- BADGE SYSTEM ---
+BADGES = [
+    {"name": "First Solve", "desc": "Solved your first problem!", "criteria": lambda s: s >= 1, "emoji": "🥇"},
+    {"name": "Speedster", "desc": "Solved a problem in under 60s!", "criteria": lambda s: any(p.get('time_taken', 9999) < 60 for p in st.session_state.solved_problems), "emoji": "⚡"},
+    {"name": "Hintless Hero", "desc": "Solved a problem without hints!", "criteria": lambda s: any(p.get('hints_used', 1e9) == 0 for p in st.session_state.solved_problems), "emoji": "🦸"},
+    {"name": "DSA Explorer", "desc": "Solved problems in 3+ topics!", "criteria": lambda s: len(set(p['title'].split('-')[0].strip() for p in st.session_state.solved_problems)) >= 3, "emoji": "🧭"},
+    {"name": "Nightmare Conqueror", "desc": "Solved a Nightmare problem!", "criteria": lambda s: any(p.get('difficulty', '') == 'Nightmare' for p in st.session_state.solved_problems), "emoji": "👹"},
+    {"name": "Persistence", "desc": "Solved 10+ problems!", "criteria": lambda s: s >= 10, "emoji": "🏆"},
+]
+
+def get_earned_badges():
+    solved = len(st.session_state.solved_problems)
+    badges = []
+    for badge in BADGES:
+        if badge["criteria"](st.session_state.solved_problems if "problems" in badge["desc"].lower() else solved):
+            badges.append(badge)
+    return badges
+
+# --- CODE EXECUTION (PYTHON ONLY, SAFE) ---
+def safe_run_python(user_code, input_str):
+    """Safely execute user Python code and capture output."""
+    try:
+        # Prepare a local namespace
+        local_ns = {}
+        # Redirect stdout
+        with contextlib.redirect_stdout(io.StringIO()) as f:
+            # Prepare input() mocking
+            input_lines = input_str.strip().split('\n')
+            input_iter = iter(input_lines)
+            def input_mock(prompt=''):
+                return next(input_iter)
+            # Patch builtins
+            import builtins
+            real_input = builtins.input
+            builtins.input = input_mock
+            try:
+                exec(user_code, {}, local_ns)
+            finally:
+                builtins.input = real_input
+        output = f.getvalue().strip()
+        return output, None
+    except Exception as e:
+        return "", str(e)
+
+def compare_outputs(user_out, expected_out):
+    """Compare outputs, ignoring whitespace differences."""
+    return user_out.strip() == expected_out.strip()
+
 def main():
     st.title("🧠 DSA Mastery - AI-Powered Learning")
     st.markdown("*Master Data Structures and Algorithms with AI guidance*")
-    
+    st.info("Welcome! Ready to level up your DSA skills? 🚀")
+
     # Initialize Gemini
     try:
         model = init_gemini()
@@ -425,11 +477,20 @@ def main():
         if st.session_state.solved_problems:
             avg_time = sum(p.get('time_taken', 0) for p in st.session_state.solved_problems) / len(st.session_state.solved_problems)
             st.metric("Avg Time", f"{avg_time:.1f}s")
-    
+        
+        # --- BADGES DISPLAY ---
+        st.header("🏅 Badges")
+        badges = get_earned_badges()
+        if badges:
+            for badge in badges:
+                st.markdown(f"{badge['emoji']} **{badge['name']}**: {badge['desc']}")
+        else:
+            st.caption("No badges yet. Start solving to earn some! 🌟")
+
     # Main content area
     if st.session_state.current_problem:
         problem = st.session_state.current_problem
-        
+
         # Timer
         if st.session_state.start_time:
             elapsed = time.time() - st.session_state.start_time
@@ -437,7 +498,8 @@ def main():
         
         # Problem display
         st.header(f"📝 {problem['title']}")
-        
+        st.success("Good luck! You can do it! 💪")
+
         # Problem tabs
         tab1, tab2, tab3, tab4 = st.tabs(["Problem", "Solution", "Hints", "Visualization"])
         
@@ -479,25 +541,79 @@ def main():
             )
             st.session_state.user_solution = user_code
             
+            # --- OUTPUT DISPLAY ---
+            st.markdown("### 🖨️ Output Checker")
+            output_placeholder = st.empty()
+            feedback_placeholder = st.empty()
+
             col1, col2, col3 = st.columns(3)
             with col1:
                 if st.button("🏃‍♂️ Run Code"):
-                    st.info("Code execution simulation - integrate with code runner")
-            
+                    if language_key == "python":
+                        user_out, err = safe_run_python(user_code, problem.get('example_input', ''))
+                        if err:
+                            output_placeholder.error(f"Error: {err}")
+                        else:
+                            output_placeholder.code(user_out, language="text")
+                            expected = problem.get('example_output', '').strip()
+                            if compare_outputs(user_out, expected):
+                                feedback_placeholder.success("✅ Output matches the example! Well done!")
+                            else:
+                                feedback_placeholder.warning("⚠️ Output does not match the example. Check your logic.")
+                    else:
+                        st.info("For non-Python languages, please run your code in your local environment or an online compiler.")
+                        user_out = st.text_area(
+                            "Paste your program's output here for checking:",
+                            value="",
+                            key="manual_output_check",
+                            height=100,
+                            help="Copy the output from your compiler/interpreter and paste here."
+                        )
+                        if st.button("Check Output", key="check_output_btn"):
+                            expected = problem.get('example_output', '').strip()
+                            if compare_outputs(user_out, expected):
+                                feedback_placeholder.success("✅ Output matches the example! Well done!")
+                            else:
+                                feedback_placeholder.warning("⚠️ Output does not match the example. Check your logic.")
+
             with col2:
                 if st.button("✅ Submit"):
                     if user_code.strip():
+                        correct = False
+                        if language_key == "python":
+                            user_out, err = safe_run_python(user_code, problem.get('example_input', ''))
+                            expected = problem.get('example_output', '').strip()
+                            if not err and compare_outputs(user_out, expected):
+                                correct = True
+                        else:
+                            # For non-Python, check if user pasted correct output
+                            user_out = st.session_state.get("manual_output_check", "")
+                            expected = problem.get('example_output', '').strip()
+                            if user_out and compare_outputs(user_out, expected):
+                                correct = True
+                            elif user_out:
+                                correct = False
+                            else:
+                                correct = None  # Not checked
+
                         time_taken = time.time() - st.session_state.start_time if st.session_state.start_time else 0
                         st.session_state.solved_problems.append({
                             'title': problem['title'],
-                            'difficulty': difficulty,
+                            'difficulty': st.session_state.get('current_difficulty', 'Unknown'),
                             'time_taken': time_taken,
                             'hints_used': st.session_state.hint_count
                         })
-                        st.success(f"Problem submitted! Time: {time_taken:.1f}s")
+                        if correct is True:
+                            st.balloons()
+                            st.success(f"🎉 Correct! Problem submitted! Time: {time_taken:.1f}s")
+                            st.info("You've earned a badge? Check the sidebar! 🏅")
+                        elif correct is False:
+                            st.warning("❌ Output is incorrect. Try again or use a hint!")
+                        else:
+                            st.info("Submission recorded! (Output not auto-checked for this language)")
                     else:
                         st.warning("Please write a solution first")
-            
+
             with col3:
                 if st.button("🔄 Reset"):
                     st.session_state.user_solution = ""
@@ -723,5 +839,4 @@ Try Queen at (0,0) ✓
         st.plotly_chart(fig, use_container_width=True)
 
 if __name__ == "__main__":
-    import math
     main()
