@@ -59,10 +59,10 @@ if 'hint_count' not in st.session_state:
 if 'solved_problems' not in st.session_state:
     st.session_state.solved_problems = []
 
-def generate_problem(topic, difficulty, model):
+def generate_problem(topic, difficulty, language, model):
     """Generate a coding problem using Gemini"""
     prompt = f"""
-    Generate a {difficulty} level coding problem for {topic}. 
+    Generate a {difficulty} level coding problem for {topic} in {language}.
     
     Return the response in this exact JSON format:
     {{
@@ -76,10 +76,13 @@ def generate_problem(topic, difficulty, model):
         "hints": ["Hint 1", "Hint 2", "Hint 3"],
         "solution_approach": "High-level approach to solve",
         "time_complexity": "Expected time complexity",
-        "space_complexity": "Expected space complexity"
+        "space_complexity": "Expected space complexity",
+        "starter_code": "Starter code template in {language}",
+        "solution_code": "Complete solution in {language}"
     }}
     
     Make sure the problem is educational and focuses on understanding {topic} concepts.
+    Provide language-specific starter code and solution.
     """
     
     try:
@@ -93,6 +96,33 @@ def generate_problem(topic, difficulty, model):
     except Exception as e:
         return {"error": f"Error generating problem: {str(e)}"}
 
+def get_code_editor_theme(language):
+    """Get appropriate syntax highlighting for code editor"""
+    theme_map = {
+        "python": "python",
+        "java": "java",
+        "cpp": "cpp",
+        "javascript": "javascript", 
+        "c": "c",
+        "go": "go",
+        "rust": "rust",
+        "csharp": "csharp"
+    }
+    return theme_map.get(language, "python")
+
+def get_starter_template(language):
+    """Get language-specific starter templates"""
+    templates = {
+        "python": "# Write your solution here\ndef solve():\n    pass\n\n# Test your solution\nif __name__ == '__main__':\n    pass",
+        "java": "public class Solution {\n    public static void main(String[] args) {\n        // Write your solution here\n    }\n}",
+        "cpp": "#include <iostream>\n#include <vector>\nusing namespace std;\n\nint main() {\n    // Write your solution here\n    return 0;\n}",
+        "javascript": "// Write your solution here\nfunction solve() {\n    \n}\n\n// Test your solution\nconsole.log(solve());",
+        "c": "#include <stdio.h>\n#include <stdlib.h>\n\nint main() {\n    // Write your solution here\n    return 0;\n}",
+        "go": "package main\n\nimport \"fmt\"\n\nfunc main() {\n    // Write your solution here\n}",
+        "rust": "fn main() {\n    // Write your solution here\n}\n\nfn solve() {\n    \n}",
+        "csharp": "using System;\n\nclass Program {\n    static void Main() {\n        // Write your solution here\n    }\n}"
+    }
+    return templates.get(language, templates["python"])
 def visualize_array(arr, title="Array Visualization"):
     """Create interactive array visualization"""
     fig = go.Figure()
@@ -335,6 +365,24 @@ def main():
     with st.sidebar:
         st.header("🎯 Problem Selection")
         
+        # Language selection
+        languages = {
+            "Python": "python",
+            "Java": "java", 
+            "C++": "cpp",
+            "JavaScript": "javascript",
+            "C": "c",
+            "Go": "go",
+            "Rust": "rust",
+            "C#": "csharp"
+        }
+        
+        selected_language = st.selectbox(
+            "Choose Programming Language:",
+            list(languages.keys()),
+            index=0
+        )
+        
         # Topic selection
         selected_topic = st.selectbox(
             "Choose Data Structure/Algorithm:",
@@ -360,12 +408,13 @@ def main():
         # Generate problem button
         if st.button("🎲 Generate New Problem", type="primary"):
             with st.spinner("Generating problem..."):
-                problem = generate_problem(f"{selected_topic} - {subtopic}", difficulty, model)
+                problem = generate_problem(f"{selected_topic} - {subtopic}", difficulty, selected_language, model)
                 if "error" not in problem:
                     st.session_state.current_problem = problem
+                    st.session_state.current_language = selected_language
                     st.session_state.start_time = time.time()
                     st.session_state.hint_count = 0
-                    st.session_state.user_solution = ""
+                    st.session_state.user_solution = get_starter_template(languages[selected_language])
                     st.rerun()
                 else:
                     st.error(problem["error"])
@@ -414,11 +463,19 @@ def main():
             
             # Code editor
             st.markdown("### 💻 Your Solution")
+            language_key = languages[st.session_state.get('current_language', 'Python')]
+            
+            # Display starter code if available
+            if 'starter_code' in problem:
+                st.markdown("**Starter Code:**")
+                st.code(problem['starter_code'], language=language_key)
+            
             user_code = st.text_area(
                 "Write your solution here:",
                 value=st.session_state.user_solution,
                 height=300,
-                placeholder="# Write your solution here\ndef solve():\n    pass"
+                placeholder=get_starter_template(language_key),
+                help=f"Write your solution in {st.session_state.get('current_language', 'Python')}"
             )
             st.session_state.user_solution = user_code
             
@@ -459,11 +516,17 @@ def main():
                 st.markdown("**Space Complexity:**")
                 st.code(problem['space_complexity'])
             
+            # Display solution code if available
+            if 'solution_code' in problem:
+                st.markdown("**Complete Solution:**")
+                language_key = languages[st.session_state.get('current_language', 'Python')]
+                st.code(problem['solution_code'], language=language_key)
+            
             # Generate detailed solution
             if st.button("🔍 Get Detailed Solution"):
                 with st.spinner("Generating detailed solution..."):
                     solution_prompt = f"""
-                    Provide a detailed solution for this problem:
+                    Provide a detailed solution for this problem in {st.session_state.get('current_language', 'Python')}:
                     {problem['title']}
                     {problem['description']}
                     
