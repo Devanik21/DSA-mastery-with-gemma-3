@@ -738,7 +738,7 @@ def main():
 
             col1, col2, col3 = st.columns(3)
             with col1:
-                if st.button("🏃‍♂️ Run Code"):
+                if st.button("🏃‍♂️ Run Code", key="run_code_btn_tab1"):
                     if language_key == "python":
                         user_out, err = safe_run_python(user_code, problem.get('example_input', ''))
                         if err:
@@ -767,7 +767,7 @@ def main():
                                 feedback_placeholder.warning("⚠️ Output does not match the example. Check your logic.")
 
             with col2:
-                if st.button("✅ Submit"):
+                if st.button("✅ Submit", key="submit_btn_tab1"):
                     if user_code.strip():
                         correct = False
                         if language_key == "python":
@@ -806,7 +806,7 @@ def main():
                         st.warning("Please write a solution first")
 
             with col3:
-                if st.button("🔄 Reset"):
+                if st.button("🔄 Reset", key="reset_btn_tab1"):
                     st.session_state.user_solution = ""
                     st.session_state.hint_count = 0
                     st.rerun()
@@ -1099,7 +1099,7 @@ Try Queen at (0,0) ✓
 
             col1, col2, col3 = st.columns(3)
             with col1:
-                if st.button("🏃‍♂️ Run Code"):
+                if st.button("🏃‍♂️ Run Code", key="run_code_btn_tab1"):
                     if language_key == "python":
                         user_out, err = safe_run_python(user_code, problem.get('example_input', ''))
                         if err:
@@ -1128,7 +1128,7 @@ Try Queen at (0,0) ✓
                                 feedback_placeholder.warning("⚠️ Output does not match the example. Check your logic.")
 
             with col2:
-                if st.button("✅ Submit"):
+                if st.button("✅ Submit", key="submit_btn_tab1"):
                     if user_code.strip():
                         correct = False
                         if language_key == "python":
@@ -1167,7 +1167,7 @@ Try Queen at (0,0) ✓
                         st.warning("Please write a solution first")
 
             with col3:
-                if st.button("🔄 Reset"):
+                if st.button("🔄 Reset", key="reset_btn_tab1"):
                     st.session_state.user_solution = ""
                     st.session_state.hint_count = 0
                     st.rerun()
