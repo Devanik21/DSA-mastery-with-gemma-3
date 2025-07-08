@@ -21,7 +21,7 @@ st.set_page_config(
 @st.cache_resource
 def init_gemini():
     genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-    return genai.GenerativeModel('gemini-pro')
+    return genai.GenerativeModel('gemma-3-27b-it')
 
 # Data structures and topics
 DS_TOPICS = {
