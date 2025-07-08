@@ -1099,7 +1099,7 @@ Try Queen at (0,0) ✓
 
             col1, col2, col3 = st.columns(3)
             with col1:
-                if st.button("🏃‍♂️ Run Code", key="run_code_btn_tab1"):
+                if st.button("🏃‍♂️ Run Code", key="run_code_btn_tab1e48jjj"):
                     if language_key == "python":
                         user_out, err = safe_run_python(user_code, problem.get('example_input', ''))
                         if err:
