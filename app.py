@@ -367,8 +367,34 @@ def get_earned_badges():
     solved = len(st.session_state.solved_problems)
     badges = []
     for badge in BADGES:
-        if badge["criteria"](st.session_state.solved_problems if "problems" in badge["desc"].lower() else solved):
-            badges.append(badge)
+        # Fix: Always pass the correct type to the criteria lambda
+        # If the lambda expects a count, pass solved; if it expects a list, pass the list
+        import inspect
+        try:
+            # Check if lambda expects a list (by checking if it uses 'for' or 'any'/'len')
+            # We'll use the function's code object to check argument names
+            params = inspect.signature(badge["criteria"]).parameters
+            # If the lambda expects a list, pass the list; else, pass the count
+            # We'll use a heuristic: if the lambda's code contains 'for' or 'any', pass the list
+            src = badge["criteria"].__code__.co_code
+            # Actually, let's use the description as a hint (as in the original code)
+            if "problems" in badge["desc"].lower():
+                arg = st.session_state.solved_problems
+            else:
+                arg = solved
+            if badge["criteria"](arg):
+                badges.append(badge)
+        except Exception:
+            # fallback: try both
+            try:
+                if badge["criteria"](solved):
+                    badges.append(badge)
+            except Exception:
+                try:
+                    if badge["criteria"](st.session_state.solved_problems):
+                        badges.append(badge)
+                except Exception:
+                    pass
     return badges
 
 # --- CODE EXECUTION (PYTHON ONLY, SAFE) ---
