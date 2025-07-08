@@ -11,6 +11,10 @@ import re
 import math
 import io
 import contextlib
+import subprocess
+import tempfile
+import os
+import sys
 
 # Configure page
 st.set_page_config(
@@ -68,7 +72,7 @@ def generate_problem(topic, difficulty, language, model):
     Generate a {difficulty} level coding problem for {topic} in {language}.
     
     Return the response in this exact JSON format:
-    {{
+    {
         "title": "Problem Title",
         "description": "Detailed problem description with examples",
         "input_format": "Input format description",
@@ -82,7 +86,7 @@ def generate_problem(topic, difficulty, language, model):
         "space_complexity": "Expected space complexity",
         "starter_code": "Starter code template in {language}",
         "solution_code": "Complete solution in {language}"
-    }}
+    }
     
     Make sure the problem is educational and focuses on understanding {topic} concepts.
     Provide language-specific starter code and solution.
@@ -355,47 +359,30 @@ def visualize_dp_table(dp_table, problem_name):
 
 # --- BADGE SYSTEM ---
 BADGES = [
-    {"name": "First Solve", "desc": "Solved your first problem!", "criteria": lambda s: s >= 1, "emoji": "🥇"},
-    {"name": "Speedster", "desc": "Solved a problem in under 60s!", "criteria": lambda s: any(p.get('time_taken', 9999) < 60 for p in st.session_state.solved_problems), "emoji": "⚡"},
-    {"name": "Hintless Hero", "desc": "Solved a problem without hints!", "criteria": lambda s: any(p.get('hints_used', 1e9) == 0 for p in st.session_state.solved_problems), "emoji": "🦸"},
-    {"name": "DSA Explorer", "desc": "Solved problems in 3+ topics!", "criteria": lambda s: len(set(p['title'].split('-')[0].strip() for p in st.session_state.solved_problems)) >= 3, "emoji": "🧭"},
-    {"name": "Nightmare Conqueror", "desc": "Solved a Nightmare problem!", "criteria": lambda s: any(p.get('difficulty', '') == 'Nightmare' for p in st.session_state.solved_problems), "emoji": "👹"},
-    {"name": "Persistence", "desc": "Solved 10+ problems!", "criteria": lambda s: s >= 10, "emoji": "🏆"},
+    {"name": "First Solve", "desc": "Solved your first problem!", "criteria": lambda count: count >= 1, "type": "count", "emoji": "🥇"},
+    {"name": "Speedster", "desc": "Solved a problem in under 60s!", "criteria": lambda problems: any(p.get('time_taken', 9999) < 60 for p in problems), "type": "list", "emoji": "⚡"},
+    {"name": "Hintless Hero", "desc": "Solved a problem without hints!", "criteria": lambda problems: any(p.get('hints_used', 1e9) == 0 for p in problems), "type": "list", "emoji": "🦸"},
+    {"name": "DSA Explorer", "desc": "Solved problems in 3+ topics!", "criteria": lambda problems: len(set(p['topic'] for p in problems)) >= 3, "type": "list", "emoji": "🧭"},
+    {"name": "Nightmare Conqueror", "desc": "Solved a Nightmare problem!", "criteria": lambda problems: any(p.get('difficulty', '') == 'Nightmare' for p in problems), "type": "list", "emoji": "👹"},
+    {"name": "Persistence", "desc": "Solved 10+ problems!", "criteria": lambda count: count >= 10, "type": "count", "emoji": "🏆"},
 ]
 
 def get_earned_badges():
-    solved = len(st.session_state.solved_problems)
-    badges = []
+    """Checks which badges the user has earned based on their stats."""
+    solved_count = len(st.session_state.solved_problems)
+    problems_list = st.session_state.solved_problems
+    earned_badges = []
     for badge in BADGES:
-        # Fix: Always pass the correct type to the criteria lambda
-        # If the lambda expects a count, pass solved; if it expects a list, pass the list
-        import inspect
         try:
-            # Check if lambda expects a list (by checking if it uses 'for' or 'any'/'len')
-            # We'll use the function's code object to check argument names
-            params = inspect.signature(badge["criteria"]).parameters
-            # If the lambda expects a list, pass the list; else, pass the count
-            # We'll use a heuristic: if the lambda's code contains 'for' or 'any', pass the list
-            src = badge["criteria"].__code__.co_code
-            # Actually, let's use the description as a hint (as in the original code)
-            if "problems" in badge["desc"].lower():
-                arg = st.session_state.solved_problems
+            if badge.get("type") == "count":
+                if badge["criteria"](solved_count):
+                    earned_badges.append(badge)
             else:
-                arg = solved
-            if badge["criteria"](arg):
-                badges.append(badge)
-        except Exception:
-            # fallback: try both
-            try:
-                if badge["criteria"](solved):
-                    badges.append(badge)
-            except Exception:
-                try:
-                    if badge["criteria"](st.session_state.solved_problems):
-                        badges.append(badge)
-                except Exception:
-                    pass
-    return badges
+                if badge["criteria"](problems_list):
+                    earned_badges.append(badge)
+        except Exception as e:
+            st.warning(f"Could not compute badge '{badge['name']}': {e}") # Optional: for debugging
+    return earned_badges
 
 # --- CODE EXECUTION (PYTHON ONLY, SAFE) ---
 def safe_run_python(user_code, input_str):
@@ -426,6 +413,145 @@ def safe_run_python(user_code, input_str):
 def compare_outputs(user_out, expected_out):
     """Compare outputs, ignoring whitespace differences."""
     return user_out.strip() == expected_out.strip()
+
+def safe_run_code(language, user_code, input_str):
+    """Safely execute user code for supported languages and capture output."""
+    try:
+        if language == "python":
+            return safe_run_python(user_code, input_str)
+        # --- Java ---
+        elif language == "java":
+            with tempfile.TemporaryDirectory() as tmpdir:
+                file_path = os.path.join(tmpdir, "Solution.java")
+                with open(file_path, "w", encoding="utf-8") as f:
+                    f.write(user_code)
+                compile_proc = subprocess.run(
+                    ["javac", file_path],
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=tmpdir
+                )
+                if compile_proc.returncode != 0:
+                    return "", compile_proc.stderr
+                run_proc = subprocess.run(
+                    ["java", "-cp", tmpdir, "Solution"],
+                    input=input_str, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=5
+                )
+                if run_proc.returncode != 0:
+                    return run_proc.stdout, run_proc.stderr
+                return run_proc.stdout.strip(), None
+        # --- C++ ---
+        elif language == "cpp":
+            with tempfile.TemporaryDirectory() as tmpdir:
+                file_path = os.path.join(tmpdir, "solution.cpp")
+                exe_path = os.path.join(tmpdir, "solution")
+                with open(file_path, "w", encoding="utf-8") as f:
+                    f.write(user_code)
+                compile_proc = subprocess.run(
+                    ["g++", file_path, "-o", exe_path],
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=tmpdir
+                )
+                if compile_proc.returncode != 0:
+                    return "", compile_proc.stderr
+                run_proc = subprocess.run(
+                    [exe_path],
+                    input=input_str, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=5
+                )
+                if run_proc.returncode != 0:
+                    return run_proc.stdout, run_proc.stderr
+                return run_proc.stdout.strip(), None
+        # --- JavaScript (Node.js) ---
+        elif language == "javascript":
+            with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f:
+                f.write(user_code)
+                file_path = f.name
+            try:
+                run_proc = subprocess.run(
+                    ["node", file_path],
+                    input=input_str, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=5
+                )
+                if run_proc.returncode != 0:
+                    return run_proc.stdout, run_proc.stderr
+                return run_proc.stdout.strip(), None
+            finally:
+                os.unlink(file_path)
+        # --- C ---
+        elif language == "c":
+            with tempfile.TemporaryDirectory() as tmpdir:
+                file_path = os.path.join(tmpdir, "solution.c")
+                exe_path = os.path.join(tmpdir, "solution")
+                with open(file_path, "w", encoding="utf-8") as f:
+                    f.write(user_code)
+                compile_proc = subprocess.run(
+                    ["gcc", file_path, "-o", exe_path],
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=tmpdir
+                )
+                if compile_proc.returncode != 0:
+                    return "", compile_proc.stderr
+                run_proc = subprocess.run(
+                    [exe_path],
+                    input=input_str, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=5
+                )
+                if run_proc.returncode != 0:
+                    return run_proc.stdout, run_proc.stderr
+                return run_proc.stdout.strip(), None
+        # --- Go ---
+        elif language == "go":
+            with tempfile.NamedTemporaryFile("w", suffix=".go", delete=False) as f:
+                f.write(user_code)
+                file_path = f.name
+            try:
+                run_proc = subprocess.run(
+                    ["go", "run", file_path],
+                    input=input_str, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=5
+                )
+                if run_proc.returncode != 0:
+                    return run_proc.stdout, run_proc.stderr
+                return run_proc.stdout.strip(), None
+            finally:
+                os.unlink(file_path)
+        # --- Rust ---
+        elif language == "rust":
+            with tempfile.TemporaryDirectory() as tmpdir:
+                file_path = os.path.join(tmpdir, "main.rs")
+                exe_path = os.path.join(tmpdir, "main")
+                with open(file_path, "w", encoding="utf-8") as f:
+                    f.write(user_code)
+                compile_proc = subprocess.run(
+                    ["rustc", file_path, "-o", exe_path],
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=tmpdir
+                )
+                if compile_proc.returncode != 0:
+                    return "", compile_proc.stderr
+                run_proc = subprocess.run(
+                    [exe_path],
+                    input=input_str, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=5
+                )
+                if run_proc.returncode != 0:
+                    return run_proc.stdout, run_proc.stderr
+                return run_proc.stdout.strip(), None
+        # --- C# ---
+        elif language == "csharp":
+            with tempfile.TemporaryDirectory() as tmpdir:
+                file_path = os.path.join(tmpdir, "Program.cs")
+                exe_path = os.path.join(tmpdir, "Program.exe")
+                with open(file_path, "w", encoding="utf-8") as f:
+                    f.write(user_code)
+                compile_proc = subprocess.run(
+                    ["csc", f"/out:{exe_path}", file_path],
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=tmpdir
+                )
+                if compile_proc.returncode != 0:
+                    return "", compile_proc.stdout + "\n" + compile_proc.stderr
+                run_proc = subprocess.run(
+                    [exe_path],
+                    input=input_str, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=5
+                )
+                if run_proc.returncode != 0:
+                    return run_proc.stdout, run_proc.stderr
+                return run_proc.stdout.strip(), None
+        else:
+            return "", "Language execution not supported."
+    except Exception as e:
+        return "", str(e)
 
 def main():
     st.title("🧠 DSA Mastery - AI-Powered Learning")
@@ -490,6 +616,8 @@ def main():
                 if "error" not in problem:
                     st.session_state.current_problem = problem
                     st.session_state.current_language = selected_language
+                    st.session_state.current_topic = selected_topic
+                    st.session_state.current_difficulty = difficulty
                     st.session_state.start_time = time.time()
                     st.session_state.hint_count = 0
                     st.session_state.user_solution = get_starter_template(languages[selected_language])
@@ -575,68 +703,42 @@ def main():
             col1, col2, col3 = st.columns(3)
             with col1:
                 if st.button("🏃‍♂️ Run Code"):
-                    if language_key == "python":
-                        user_out, err = safe_run_python(user_code, problem.get('example_input', ''))
-                        if err:
-                            output_placeholder.error(f"Error: {err}")
-                        else:
-                            output_placeholder.code(user_out, language="text")
-                            expected = problem.get('example_output', '').strip()
-                            if compare_outputs(user_out, expected):
-                                feedback_placeholder.success("✅ Output matches the example! Well done!")
-                            else:
-                                feedback_placeholder.warning("⚠️ Output does not match the example. Check your logic.")
+                    user_out, err = safe_run_code(language_key, user_code, problem.get('example_input', ''))
+                    if err:
+                        output_placeholder.error(f"Error: {err}")
                     else:
-                        st.info("For non-Python languages, please run your code in your local environment or an online compiler.")
-                        user_out = st.text_area(
-                            "Paste your program's output here for checking:",
-                            value="",
-                            key="manual_output_check",
-                            height=100,
-                            help="Copy the output from your compiler/interpreter and paste here."
-                        )
-                        if st.button("Check Output", key="check_output_btn"):
-                            expected = problem.get('example_output', '').strip()
-                            if compare_outputs(user_out, expected):
-                                feedback_placeholder.success("✅ Output matches the example! Well done!")
-                            else:
-                                feedback_placeholder.warning("⚠️ Output does not match the example. Check your logic.")
+                        output_placeholder.code(user_out, language="text")
+                    # Always show output check for all languages
+                    expected = problem.get('example_output', '').strip()
+                    if not err and compare_outputs(user_out, expected):
+                        feedback_placeholder.success("✅ Output matches the example! Well done!")
+                    elif not err:
+                        feedback_placeholder.warning("⚠️ Output does not match the example. Check your logic.")
 
             with col2:
                 if st.button("✅ Submit"):
                     if user_code.strip():
                         correct = False
-                        if language_key == "python":
-                            user_out, err = safe_run_python(user_code, problem.get('example_input', ''))
-                            expected = problem.get('example_output', '').strip()
-                            if not err and compare_outputs(user_out, expected):
-                                correct = True
-                        else:
-                            # For non-Python, check if user pasted correct output
-                            user_out = st.session_state.get("manual_output_check", "")
-                            expected = problem.get('example_output', '').strip()
-                            if user_out and compare_outputs(user_out, expected):
-                                correct = True
-                            elif user_out:
-                                correct = False
-                            else:
-                                correct = None  # Not checked
+                        user_out, err = safe_run_code(language_key, user_code, problem.get('example_input', ''))
+                        expected = problem.get('example_output', '').strip()
+                        # Always check output for all languages
+                        if not err and compare_outputs(user_out, expected):
+                            correct = True
 
                         time_taken = time.time() - st.session_state.start_time if st.session_state.start_time else 0
                         st.session_state.solved_problems.append({
                             'title': problem['title'],
+                            'topic': st.session_state.get('current_topic', 'Unknown'),
                             'difficulty': st.session_state.get('current_difficulty', 'Unknown'),
                             'time_taken': time_taken,
                             'hints_used': st.session_state.hint_count
                         })
-                        if correct is True:
+                        if correct:
                             st.balloons()
                             st.success(f"🎉 Correct! Problem submitted! Time: {time_taken:.1f}s")
                             st.info("You've earned a badge? Check the sidebar! 🏅")
-                        elif correct is False:
-                            st.warning("❌ Output is incorrect. Try again or use a hint!")
                         else:
-                            st.info("Submission recorded! (Output not auto-checked for this language)")
+                            st.warning("❌ Output is incorrect. Try again or use a hint!")
                     else:
                         st.warning("Please write a solution first")
 
