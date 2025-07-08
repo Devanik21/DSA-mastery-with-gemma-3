@@ -727,7 +727,7 @@ def main():
                 height=300,
                 placeholder=get_starter_template(language_key),
                 help=f"Write your solution in {st.session_state.get('current_language', 'Python')}",
-                key="user_solution_text_area"
+                key="user_solution_text_areaaaa2"
             )
             st.session_state.user_solution = user_code
             
