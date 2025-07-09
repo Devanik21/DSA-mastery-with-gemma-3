@@ -460,40 +460,44 @@ def main():
             list(languages.keys()),
             index=0
         )
-        
+
+        # --- Random Mode ---
+        random_mode = st.checkbox("🎲 Random Mode (Random topic & difficulty)", value=False)
+
         # Topic selection (no subtopics, user chooses any topic)
         all_topics = []
         for topic, subtopics in DS_TOPICS.items():
             all_topics.append(topic)
-            # Optionally, add subtopics as separate choices for more diversity:
             for sub in subtopics:
                 all_topics.append(f"{topic} - {sub}")
         selected_topic = st.selectbox(
             "Choose DSA Topic:",
             all_topics,
-            index=0
+            index=0,
+            disabled=random_mode
         )
-        
-        # Remove subtopic selection
-        # if selected_topic:
-        #     subtopic = st.selectbox(
-        #         "Choose Subtopic:",
-        #         DS_TOPICS[selected_topic],
-        #         index=0
-        #     )
         
         # Difficulty selection
         difficulty = st.selectbox(
             "Select Difficulty:",
             DIFFICULTY_LEVELS,
-            index=1
+            index=1,
+            disabled=random_mode
         )
         
         # Generate problem button
         if st.button("🎲 Generate New Problem", type="primary"):
             with st.spinner("Generating problem..."):
-                # Use selected_topic directly (may include subtopic if chosen)
-                problem = generate_problem(selected_topic, difficulty, selected_language, model)
+                if random_mode:
+                    random_topic = random.choice(all_topics)
+                    random_difficulty = random.choice(DIFFICULTY_LEVELS)
+                    problem = generate_problem(random_topic, random_difficulty, selected_language, model)
+                    st.session_state.current_difficulty = random_difficulty
+                    st.session_state.current_topic = random_topic
+                else:
+                    problem = generate_problem(selected_topic, difficulty, selected_language, model)
+                    st.session_state.current_difficulty = difficulty
+                    st.session_state.current_topic = selected_topic
                 if "error" not in problem:
                     st.session_state.current_problem = problem
                     st.session_state.current_language = selected_language
