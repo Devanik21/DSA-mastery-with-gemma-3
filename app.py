@@ -461,20 +461,26 @@ def main():
             index=0
         )
         
-        # Topic selection
+        # Topic selection (no subtopics, user chooses any topic)
+        all_topics = []
+        for topic, subtopics in DS_TOPICS.items():
+            all_topics.append(topic)
+            # Optionally, add subtopics as separate choices for more diversity:
+            for sub in subtopics:
+                all_topics.append(f"{topic} - {sub}")
         selected_topic = st.selectbox(
-            "Choose Data Structure/Algorithm:",
-            list(DS_TOPICS.keys()),
+            "Choose DSA Topic:",
+            all_topics,
             index=0
         )
         
-        # Subtopic selection
-        if selected_topic:
-            subtopic = st.selectbox(
-                "Choose Subtopic:",
-                DS_TOPICS[selected_topic],
-                index=0
-            )
+        # Remove subtopic selection
+        # if selected_topic:
+        #     subtopic = st.selectbox(
+        #         "Choose Subtopic:",
+        #         DS_TOPICS[selected_topic],
+        #         index=0
+        #     )
         
         # Difficulty selection
         difficulty = st.selectbox(
@@ -486,7 +492,8 @@ def main():
         # Generate problem button
         if st.button("🎲 Generate New Problem", type="primary"):
             with st.spinner("Generating problem..."):
-                problem = generate_problem(f"{selected_topic} - {subtopic}", difficulty, selected_language, model)
+                # Use selected_topic directly (may include subtopic if chosen)
+                problem = generate_problem(selected_topic, difficulty, selected_language, model)
                 if "error" not in problem:
                     st.session_state.current_problem = problem
                     st.session_state.current_language = selected_language
