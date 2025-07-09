@@ -489,6 +489,7 @@ def main():
         if st.button("🎲 Generate New Problem", type="primary"):
             with st.spinner("Generating problem..."):
                 if random_mode:
+                    # Let both topic and difficulty be chosen randomly in random mode
                     random_topic = random.choice(all_topics)
                     random_difficulty = random.choice(DIFFICULTY_LEVELS)
                     problem = generate_problem(random_topic, random_difficulty, selected_language, model)
